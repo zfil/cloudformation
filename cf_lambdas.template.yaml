@@ -1,0 +1,243 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: This template regroups Lambdas to be used in custom resources to workaround current CF limitations
+
+Resources:
+
+# LambdaTagCloudFront ----------
+  LambdaTagCloudFrontRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaTagCloudFrontRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: ActionsOnCloudFrontTags
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Action:
+            - cloudfront:TagResource
+            - cloudfront:UntagResource
+            - cloudfront:ListTagsForResource
+            Effect: Allow
+            Resource: "*"
+
+  # Workaround current CloudFormation limitation where it is not possible to set Tags on CloudFront distributions
+  # Parameters:
+  # - CloudFrontArn: Arn of CloudFront distribution to modify
+  # - Tags: a list of { 'Key': key, 'Value': value }
+  LambdaTagCloudFront:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Workaround current CloudFormation limitation where it is not possible to set Tags on CloudFront distributions
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import boto3
+          import uuid
+          import traceback
+          def handler(event, context):
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            responseData = {}
+            try:
+              cloudFrontArn = event['ResourceProperties']['CloudFrontArn']
+              tags = event['ResourceProperties']['Tags']
+              if event['RequestType'] != 'Delete':
+                boto3.client('cloudfront').tag_resource(
+                  Resource=cloudFrontArn,
+                  Tags={'Items': tags})
+              else:
+                boto3.client('cloudfront').untag_resource(
+                  Resource=cloudFrontArn,
+                  TagKeys={'Items': [t['Key'] for t in tags]})
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+            except:
+              print 'handler Failed: %s' % traceback.format_exc()
+              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+      Handler: index.handler
+      Role: !GetAtt LambdaTagCloudFrontRole.Arn
+      Runtime: python2.7
+      Timeout: 10
+
+  LambdaTagCloudFrontLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    DependsOn: LambdaTagCloudFront
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaTagCloudFront}"
+      RetentionInDays: 365
+# End LambdaTagCloudFront ----------
+
+# LambdaTagKms ----------
+  LambdaTagKmsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaTagKmsRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: ActionsOnKmsTags
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Action:
+            - kms:TagResource
+            - kms:UntagResource
+            - kms:ListTagsForResource
+            Effect: Allow
+            Resource: "*"
+
+  # Workaround current CloudFormation limitation where it is not possible to set Tags on KMS Keys
+  # Parameters:
+  # - KeyId: Unique key ID of the CMK to modify
+  # - Tags: a list of { 'Key': key, 'Value': value }
+  LambdaTagKms:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Workaround current CloudFormation limitation where it is not possible to set Tags on KMS Keys
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import boto3
+          import uuid
+          import traceback
+          def handler(event, context):
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            responseData = {}
+            try:
+              keyId = event['ResourceProperties']['KeyId']
+              tags = [{'TagKey': v['Key'], 'TagValue': v['Value']} for v in event['ResourceProperties']['Tags']]
+              if event['RequestType'] != 'Delete':
+                boto3.client('kms').tag_resource(
+                  KeyId=keyId,
+                  Tags=tags)
+              else:
+                boto3.client('kms').untag_resource(
+                  KeyId=keyId,
+                  TagKeys=[t['TagKey'] for t in tags])
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+            except:
+              print 'handler Failed: %s' % traceback.format_exc()
+              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+      Handler: index.handler
+      Role: !GetAtt LambdaTagKmsRole.Arn
+      Runtime: python2.7
+      Timeout: 10
+
+  LambdaTagKmsLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    DependsOn: LambdaTagKms
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaTagKms}"
+      RetentionInDays: 365
+# End LambdaTagKms ----------
+
+# LambdaS3LifecycleAddCleanUps ----------
+  LambdaS3LifecycleAddCleanUpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaS3LifecycleAddCleanUpsRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: ActionsOnS3LifecycleConfiguration
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Action:
+            - s3:GetLifecycleConfiguration
+            - s3:PutLifecycleConfiguration
+            Effect: Allow
+            Resource: "*"
+
+  # Workaround current CloudFormation limitation where it is not possible to configure S3 Lifecycle AbortIncompleteMultipartUpload and ExpiredObjectDeleteMarker
+  # Parameters:
+  # - Bucket: Bucket to modify
+  LambdaS3LifecycleAddCleanUps:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Workaround current CloudFormation limitation where it is not possible to configure S3 Lifecycle AbortIncompleteMultipartUpload and ExpiredObjectDeleteMarker
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import boto3
+          import uuid
+          import traceback
+          def handler(event, context):
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            responseData = {}
+            try:
+              if event['RequestType'] != 'Delete':
+                bucket = event['ResourceProperties']['Bucket']
+                s3 = boto3.client('s3')
+                rules = s3.get_bucket_lifecycle_configuration(Bucket=bucket)['Rules']
+                need_update = False
+                for rule in rules:
+                  if 'Expiration' not in rule:
+                    rule['Expiration'] = {'ExpiredObjectDeleteMarker': True}
+                    need_update = True
+                  if 'AbortIncompleteMultipartUpload' not in rule:
+                    rule['AbortIncompleteMultipartUpload'] = {'DaysAfterInitiation': 2}
+                    need_update = True
+                if need_update:
+                  s3.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration={'Rules': rules})
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+            except:
+              print 'handler Failed: %s' % traceback.format_exc()
+              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+      Handler: index.handler
+      Role: !GetAtt LambdaS3LifecycleAddCleanUpsRole.Arn
+      Runtime: python2.7
+      Timeout: 10
+
+  LambdaS3LifecycleAddCleanUpsLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    DependsOn: LambdaS3LifecycleAddCleanUps
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaS3LifecycleAddCleanUps}"
+      RetentionInDays: 365
+# End LambdaS3LifecycleAddCleanUps ----------
+
+Outputs:
+  LambdaTagCloudFront:
+    Description: LambdaTagCloudFront ARN
+    Value: !GetAtt LambdaTagCloudFront.Arn
+    Export:
+      Name: LambdaTagCloudFront
+
+  LambdaTagKms:
+    Description: LambdaTagKms ARN
+    Value: !GetAtt LambdaTagKms.Arn
+    Export:
+      Name: LambdaTagKms
+
+  LambdaS3LifecycleAddCleanUps:
+    Description: LambdaS3LifecycleAddCleanUps ARN
+    Value: !GetAtt LambdaS3LifecycleAddCleanUps.Arn
+    Export:
+      Name: LambdaS3LifecycleAddCleanUps
