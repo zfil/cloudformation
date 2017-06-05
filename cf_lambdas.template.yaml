@@ -47,7 +47,8 @@ Resources:
           import uuid
           import traceback
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
             responseData = {}
             try:
               cloudFrontArn = event['ResourceProperties']['CloudFrontArn']
@@ -70,7 +71,7 @@ Resources:
       Timeout: 10
 
   LambdaTagCloudFrontLogGroup:
-    Type: "AWS::Logs::LogGroup"
+    Type: AWS::Logs::LogGroup
     DependsOn: LambdaTagCloudFront
     Properties:
       LogGroupName: !Sub "/aws/lambda/${LambdaTagCloudFront}"
@@ -119,7 +120,8 @@ Resources:
           import uuid
           import traceback
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
             responseData = {}
             try:
               keyId = event['ResourceProperties']['KeyId']
@@ -142,7 +144,7 @@ Resources:
       Timeout: 10
 
   LambdaTagKmsLogGroup:
-    Type: "AWS::Logs::LogGroup"
+    Type: AWS::Logs::LogGroup
     DependsOn: LambdaTagKms
     Properties:
       LogGroupName: !Sub "/aws/lambda/${LambdaTagKms}"
@@ -189,7 +191,8 @@ Resources:
           import uuid
           import traceback
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event else str(uuid.uuid4())
+            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
             responseData = {}
             try:
               if event['RequestType'] != 'Delete':
@@ -216,12 +219,97 @@ Resources:
       Timeout: 10
 
   LambdaS3LifecycleAddCleanUpsLogGroup:
-    Type: "AWS::Logs::LogGroup"
+    Type: AWS::Logs::LogGroup
     DependsOn: LambdaS3LifecycleAddCleanUps
     Properties:
       LogGroupName: !Sub "/aws/lambda/${LambdaS3LifecycleAddCleanUps}"
       RetentionInDays: 365
 # End LambdaS3LifecycleAddCleanUps ----------
+
+# LambdaCloudFrontOriginAccessIdentity ----------
+  LambdaCloudFrontOriginAccessIdentityRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaCloudFrontOriginAccessIdentityRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: ActionsOnCloudFrontOriginAccessIdentity
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Action:
+            - cloudfront:GetCloudFrontOriginAccessIdentity
+            - cloudfront:CreateCloudFrontOriginAccessIdentity
+            - cloudfront:DeleteCloudFrontOriginAccessIdentity
+            Effect: Allow
+            Resource: "*"
+
+  # Workaround current CloudFormation limitation where it is not possible to manage CloudFront Origin Access Identities
+  # Parameters:
+  # - Name: name of the CloudFront Origin Access Identity you want to create (needs to be unique)
+  LambdaCloudFrontOriginAccessIdentity:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Workaround current CloudFormation limitation where it is not possible to manage CloudFront Origin Access Identities
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import boto3
+          import uuid
+          import traceback
+          from botocore.exceptions import ClientError
+
+          cloudfront = boto3.client('cloudfront')
+
+          def handler(event, context):
+              physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+                  else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
+              name = event['ResourceProperties']['Name']
+              responseData = {}
+              try:
+                  if event['RequestType'] == 'Create':
+                      result = cloudfront.create_cloud_front_origin_access_identity(
+                          CloudFrontOriginAccessIdentityConfig={
+                              'CallerReference': name,
+                              'Comment': name
+                          })
+                      cfoai_id = result['CloudFrontOriginAccessIdentity']['Id']
+                      responseData['CloudFrontOriginAccessIdentityId'] = cfoai_id
+                      physicalResourceId = cfoai_id
+                  elif event['RequestType'] == 'Delete':
+                      try:
+                          cfoai = cloudfront.get_cloud_front_origin_access_identity(Id=physicalResourceId)
+                          cloudfront.delete_cloud_front_origin_access_identity(
+                              Id=physicalResourceId,
+                              IfMatch=cfoai['ETag'])
+                      except ClientError as e:
+                          if e.response['Error']['Code'] != 'NoSuchCloudFrontOriginAccessIdentity':
+                              raise
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+              except:
+                  print('handler Failed: %s' % traceback.format_exc())
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+      Handler: index.handler
+      Role: !GetAtt LambdaCloudFrontOriginAccessIdentityRole.Arn
+      Runtime: python3.6
+      Timeout: 10
+
+  LambdaCloudFrontOriginAccessIdentityLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: LambdaCloudFrontOriginAccessIdentity
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaCloudFrontOriginAccessIdentity}"
+      RetentionInDays: 365
+# End LambdaCloudFrontOriginAccessIdentity ----------
 
 Outputs:
   LambdaTagCloudFront:
@@ -241,3 +329,9 @@ Outputs:
     Value: !GetAtt LambdaS3LifecycleAddCleanUps.Arn
     Export:
       Name: LambdaS3LifecycleAddCleanUps
+
+  LambdaCloudFrontOriginAccessIdentity:
+    Description: LambdaCloudFrontOriginAccessIdentity ARN
+    Value: !GetAtt LambdaCloudFrontOriginAccessIdentity.Arn
+    Export:
+      Name: LambdaCloudFrontOriginAccessIdentity
