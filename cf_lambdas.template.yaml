@@ -1,5 +1,5 @@
 ---
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: 2010-09-09
 
 Description: This template regroups Lambdas to be used in custom resources to workaround current CF limitations
 
@@ -11,7 +11,7 @@ Resources:
     Properties:
       RoleName: LambdaTagCloudFrontRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
         - Action:
           - sts:AssumeRole
@@ -23,7 +23,7 @@ Resources:
       Policies:
       - PolicyName: ActionsOnCloudFrontTags
         PolicyDocument:
-          Version: "2012-10-17"
+          Version: 2012-10-17
           Statement:
           - Action:
             - cloudfront:TagResource
@@ -44,30 +44,41 @@ Resources:
         ZipFile: |
           import cfnresponse
           import boto3
+          import logging
           import uuid
           import traceback
+
+          cloudfront = boto3.client('cloudfront')
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
-              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
-            responseData = {}
-            try:
-              cloudFrontArn = event['ResourceProperties']['CloudFrontArn']
-              tags = event['ResourceProperties']['Tags']
-              if event['RequestType'] != 'Delete':
-                boto3.client('cloudfront').tag_resource(
-                  Resource=cloudFrontArn,
-                  Tags={'Items': tags})
-              else:
-                boto3.client('cloudfront').untag_resource(
-                  Resource=cloudFrontArn,
-                  TagKeys={'Items': [t['Key'] for t in tags]})
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
-            except:
-              print 'handler Failed: %s' % traceback.format_exc()
-              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+              physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+                  else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
+              logger.info('PhysicalResourceId: ' + physicalResourceId)
+              responseData = {}
+
+              try:
+                  cloudFrontArn = event['ResourceProperties']['CloudFrontArn']
+                  logger.info('CloudFrontArn: ' + cloudFrontArn)
+                  tags = event['ResourceProperties']['Tags']
+                  logger.info('Tags: ' + str(tags))
+                  logger.info('RequestType: ' + event['RequestType'])
+                  if event['RequestType'] != 'Delete':
+                      cloudfront.tag_resource(
+                          Resource=cloudFrontArn,
+                          Tags={'Items': tags})
+                  else:
+                      cloudfront.untag_resource(
+                          Resource=cloudFrontArn,
+                          TagKeys={'Items': [t['Key'] for t in tags]})
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+              except:
+                  logger.warning('handler Failed: %s' % traceback.format_exc())
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
       Handler: index.handler
       Role: !GetAtt LambdaTagCloudFrontRole.Arn
-      Runtime: python2.7
+      Runtime: python3.6
       Timeout: 10
 
   LambdaTagCloudFrontLogGroup:
@@ -84,7 +95,7 @@ Resources:
     Properties:
       RoleName: LambdaTagKmsRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
         - Action:
           - sts:AssumeRole
@@ -96,7 +107,7 @@ Resources:
       Policies:
       - PolicyName: ActionsOnKmsTags
         PolicyDocument:
-          Version: "2012-10-17"
+          Version: 2012-10-17
           Statement:
           - Action:
             - kms:TagResource
@@ -117,30 +128,41 @@ Resources:
         ZipFile: |
           import cfnresponse
           import boto3
+          import logging
           import uuid
           import traceback
+
+          kms = boto3.client('kms')
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
-              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
-            responseData = {}
-            try:
-              keyId = event['ResourceProperties']['KeyId']
-              tags = [{'TagKey': v['Key'], 'TagValue': v['Value']} for v in event['ResourceProperties']['Tags']]
-              if event['RequestType'] != 'Delete':
-                boto3.client('kms').tag_resource(
-                  KeyId=keyId,
-                  Tags=tags)
-              else:
-                boto3.client('kms').untag_resource(
-                  KeyId=keyId,
-                  TagKeys=[t['TagKey'] for t in tags])
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
-            except:
-              print 'handler Failed: %s' % traceback.format_exc()
-              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+              physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+                  else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
+              logger.info('PhysicalResourceId: ' + physicalResourceId)
+              responseData = {}
+
+              try:
+                  keyId = event['ResourceProperties']['KeyId']
+                  logger.info('KeyId: ' + keyId)
+                  tags = [{'TagKey': v['Key'], 'TagValue': v['Value']} for v in event['ResourceProperties']['Tags']]
+                  logger.info('Tags: ' + str(tags))
+                  logger.info('RequestType: ' + event['RequestType'])
+                  if event['RequestType'] != 'Delete':
+                      kms.tag_resource(
+                          KeyId=keyId,
+                          Tags=tags)
+                  else:
+                      kms.untag_resource(
+                          KeyId=keyId,
+                          TagKeys=[t['TagKey'] for t in tags])
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+              except:
+                  logger.warning('handler Failed: %s' % traceback.format_exc())
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
       Handler: index.handler
       Role: !GetAtt LambdaTagKmsRole.Arn
-      Runtime: python2.7
+      Runtime: python3.6
       Timeout: 10
 
   LambdaTagKmsLogGroup:
@@ -157,7 +179,7 @@ Resources:
     Properties:
       RoleName: LambdaS3LifecycleAddCleanUpsRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
         - Action:
           - sts:AssumeRole
@@ -169,7 +191,7 @@ Resources:
       Policies:
       - PolicyName: ActionsOnS3LifecycleConfiguration
         PolicyDocument:
-          Version: "2012-10-17"
+          Version: 2012-10-17
           Statement:
           - Action:
             - s3:GetLifecycleConfiguration
@@ -177,7 +199,8 @@ Resources:
             Effect: Allow
             Resource: "*"
 
-  # Workaround current CloudFormation limitation where it is not possible to configure S3 Lifecycle AbortIncompleteMultipartUpload and ExpiredObjectDeleteMarker
+  # Workaround current CloudFormation limitation where it is not possible to configure S3 Lifecycle AbortIncompleteMultipartUpload and ExpiredObjectDeleteMarker.
+  # Beware if you use this Custom resource don't use AbortIncompleteMultipartUpload property.
   # Parameters:
   # - Bucket: Bucket to modify
   LambdaS3LifecycleAddCleanUps:
@@ -188,34 +211,49 @@ Resources:
         ZipFile: |
           import cfnresponse
           import boto3
+          import logging
           import uuid
           import traceback
+          from botocore.exceptions import ClientError
+
+          s3 = boto3.client('s3')
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
           def handler(event, context):
-            physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
-              else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
-            responseData = {}
-            try:
-              if event['RequestType'] != 'Delete':
-                bucket = event['ResourceProperties']['Bucket']
-                s3 = boto3.client('s3')
-                rules = s3.get_bucket_lifecycle_configuration(Bucket=bucket)['Rules']
-                need_update = False
-                for rule in rules:
-                  if 'Expiration' not in rule:
-                    rule['Expiration'] = {'ExpiredObjectDeleteMarker': True}
-                    need_update = True
-                  if 'AbortIncompleteMultipartUpload' not in rule:
-                    rule['AbortIncompleteMultipartUpload'] = {'DaysAfterInitiation': 2}
-                    need_update = True
-                if need_update:
-                  s3.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration={'Rules': rules})
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
-            except:
-              print 'handler Failed: %s' % traceback.format_exc()
-              cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
+              physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
+                  else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
+              logger.info('PhysicalResourceId: ' + physicalResourceId)
+              responseData = {}
+
+              try:
+                  if event['RequestType'] != 'Delete':
+                      bucket = event['ResourceProperties']['Bucket']
+                      logger.info('Bucket: ' + bucket)
+
+                      try:
+                          rules = s3.get_bucket_lifecycle_configuration(Bucket=bucket)['Rules']
+                      except ClientError:
+                          rules = []
+
+                      need_update = False
+                      for rule in rules:
+                          if 'Expiration' not in rule:
+                              rule['Expiration'] = {'ExpiredObjectDeleteMarker': True}
+                              need_update = True
+                          if 'AbortIncompleteMultipartUpload' not in rule:
+                              rule['AbortIncompleteMultipartUpload'] = {'DaysAfterInitiation': 2}
+                              need_update = True
+                      if need_update:
+                          logger.info('Updating Rules: ' + str(rules))
+                          s3.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration={'Rules': rules})
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
+              except:
+                  logger.warning('handler Failed: %s' % traceback.format_exc())
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
       Handler: index.handler
       Role: !GetAtt LambdaS3LifecycleAddCleanUpsRole.Arn
-      Runtime: python2.7
+      Runtime: python3.6
       Timeout: 10
 
   LambdaS3LifecycleAddCleanUpsLogGroup:
@@ -232,7 +270,7 @@ Resources:
     Properties:
       RoleName: LambdaCloudFrontOriginAccessIdentityRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
         - Action:
           - sts:AssumeRole
@@ -244,11 +282,12 @@ Resources:
       Policies:
       - PolicyName: ActionsOnCloudFrontOriginAccessIdentity
         PolicyDocument:
-          Version: "2012-10-17"
+          Version: 2012-10-17
           Statement:
           - Action:
             - cloudfront:GetCloudFrontOriginAccessIdentity
             - cloudfront:CreateCloudFrontOriginAccessIdentity
+            - cloudfront:UpdateCloudFrontOriginAccessIdentity
             - cloudfront:DeleteCloudFrontOriginAccessIdentity
             Effect: Allow
             Resource: "*"
@@ -256,6 +295,7 @@ Resources:
   # Workaround current CloudFormation limitation where it is not possible to manage CloudFront Origin Access Identities
   # Parameters:
   # - Name: name of the CloudFront Origin Access Identity you want to create (needs to be unique)
+  # - Returns: CloudFrontOriginAccessIdentityId
   LambdaCloudFrontOriginAccessIdentity:
     Type: AWS::Lambda::Function
     Properties:
@@ -264,18 +304,23 @@ Resources:
         ZipFile: |
           import cfnresponse
           import boto3
+          import logging
           import uuid
           import traceback
-          from botocore.exceptions import ClientError
 
           cloudfront = boto3.client('cloudfront')
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
 
           def handler(event, context):
               physicalResourceId = event['PhysicalResourceId'] if 'PhysicalResourceId' in event \
                   else event['LogicalResourceId'] + '-' + str(uuid.uuid4()).upper().replace("-", "")[:12]
-              name = event['ResourceProperties']['Name']
               responseData = {}
+
               try:
+                  name = event['ResourceProperties']['Name']
+                  logger.info('Name: ' + name)
+
                   if event['RequestType'] == 'Create':
                       result = cloudfront.create_cloud_front_origin_access_identity(
                           CloudFrontOriginAccessIdentityConfig={
@@ -285,18 +330,27 @@ Resources:
                       cfoai_id = result['CloudFrontOriginAccessIdentity']['Id']
                       responseData['CloudFrontOriginAccessIdentityId'] = cfoai_id
                       physicalResourceId = cfoai_id
+                      logger.info('Created PhysicalResourceId: ' + physicalResourceId)
+                  elif event['RequestType'] == 'Update':
+                      cfoai = cloudfront.get_cloud_front_origin_access_identity(Id=physicalResourceId)
+                      result = cloudfront.update_cloud_front_origin_access_identity(
+                          CloudFrontOriginAccessIdentityConfig={
+                              'CallerReference': name,
+                              'Comment': name
+                          },
+                          Id=physicalResourceId,
+                          IfMatch=cfoai['ETag'])
+                      responseData['CloudFrontOriginAccessIdentityId'] = result['CloudFrontOriginAccessIdentity']['Id']
+                      logger.info('Updated PhysicalResourceId: ' + physicalResourceId)
                   elif event['RequestType'] == 'Delete':
-                      try:
-                          cfoai = cloudfront.get_cloud_front_origin_access_identity(Id=physicalResourceId)
-                          cloudfront.delete_cloud_front_origin_access_identity(
-                              Id=physicalResourceId,
-                              IfMatch=cfoai['ETag'])
-                      except ClientError as e:
-                          if e.response['Error']['Code'] != 'NoSuchCloudFrontOriginAccessIdentity':
-                              raise
+                      cfoai = cloudfront.get_cloud_front_origin_access_identity(Id=physicalResourceId)
+                      cloudfront.delete_cloud_front_origin_access_identity(
+                          Id=physicalResourceId,
+                          IfMatch=cfoai['ETag'])
+                      logger.info('Deleted PhysicalResourceId: ' + physicalResourceId)
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, physicalResourceId)
               except:
-                  print('handler Failed: %s' % traceback.format_exc())
+                  logger.warning('handler Failed: %s' % traceback.format_exc())
                   cfnresponse.send(event, context, cfnresponse.FAILED, responseData, physicalResourceId)
       Handler: index.handler
       Role: !GetAtt LambdaCloudFrontOriginAccessIdentityRole.Arn

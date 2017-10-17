@@ -1,0 +1,110 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Test our CF Custom resources
+
+Resources:
+
+  TestCloudFrontOriginAccessIdentity:
+    Type: Custom::LambdaCloudFrontOriginAccessIdentity
+    Properties:
+      ServiceToken: !ImportValue LambdaCloudFrontOriginAccessIdentity
+      Name: test-origin
+
+  TestCmk:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: test Key
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: "default"
+        Statement:
+        - Sid: "Enable IAM User Permissions"
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: [ "kms:*" ]
+          Resource: "*"
+  TestCmkTag:
+    Type: Custom::LambdaTagKms
+    Properties:
+      ServiceToken: !ImportValue LambdaTagKms
+      KeyId: !Ref TestCmk
+      Tags:
+      - Key: test
+        Value: tag
+
+  TestBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+        - Id: cleanup
+          Status: Enabled
+          Prefix: key1
+          ExpirationInDays: 60
+        - Id: cleanup-uploads
+          Status: Enabled
+          Prefix: key2
+          ExpirationInDays: 1
+  TestBucketClean:
+    Type: Custom::LambdaS3LifecycleAddCleanUps
+    Properties:
+      ServiceToken: !ImportValue LambdaS3LifecycleAddCleanUps
+      Bucket: !Ref TestBucket
+  TestBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: TestCloudFrontOriginAccessIdentity
+    Properties:
+      Bucket: !Ref TestBucket
+      PolicyDocument:
+        Statement:
+        - Action:
+          - s3:GetObject
+          Effect: Allow
+          Resource: !Sub "arn:aws:s3:::${TestBucket}/*"
+          Principal:
+            AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${TestCloudFrontOriginAccessIdentity.CloudFrontOriginAccessIdentityId}"
+  TestCloudFront:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: TestBucketPolicy
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: test
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Origins:
+        - DomainName: !GetAtt TestBucket.DomainName
+          Id: !Sub "S3-${TestBucket}"
+          S3OriginConfig:
+            OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${TestCloudFrontOriginAccessIdentity.CloudFrontOriginAccessIdentityId}"
+        DefaultCacheBehavior:
+          TargetOriginId: !Sub "S3-${TestBucket}"
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          Compress: true
+          DefaultTTL: 43200
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            Headers:
+            - Access-Control-Request-Headers
+            - Access-Control-Request-Method
+            - Origin
+            QueryString: false
+          ViewerProtocolPolicy: allow-all
+  TestCloudFrontTag:
+    Type: Custom::LambdaTagCloudFront
+    DependsOn: TestCloudFront
+    Properties:
+      ServiceToken: !ImportValue LambdaTagCloudFront
+      CloudFrontArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${TestCloudFront}"
+      Tags:
+      - Key: test
+        Value: tag
